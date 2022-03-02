@@ -25,7 +25,7 @@ impl Chunks {
         println!("version: {:x?}", v);
 
         Self {
-            buf: buf.clone(),
+            buf,
             current_pos: 8,
         }
     }
@@ -45,7 +45,7 @@ impl Iterator for Chunks {
         // https://github.com/prometheus/prometheus/blob/main/tsdb/chunks/chunks.go#L37
         //
         // len varint size
-        self.current_pos += 1;
+        self.current_pos += size;
         // encoding byte
         self.current_pos += 1;
         // data length
