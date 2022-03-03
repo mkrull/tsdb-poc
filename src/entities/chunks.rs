@@ -1,8 +1,15 @@
+use crc::{Crc, CRC_32_ISCSI};
 use std::{fs::File, io::Read, path::Path};
 
 #[path = "common.rs"]
 mod common;
 use common::*;
+
+const CASTAGNIOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
+const ENCODING_SIZE: usize = 1;
+const CHECKSUM_SIZE: usize = 4;
+const MAGIC_SIZE: usize = 4;
+const VERSION_SIZE: usize = 1;
 
 // NOTE: Format of a chunk file:
 // https://github.com/prometheus/prometheus/blob/main/tsdb/docs/format/chunks.md
@@ -18,10 +25,10 @@ impl Chunks {
 
         f.read_to_end(&mut buf).expect("Error reading into buf");
 
-        let m = copy_bytes(&buf, 4, 0);
+        let m = copy_bytes(&buf, MAGIC_SIZE, 0);
         println!("magic: {:x?}", m);
 
-        let v = copy_bytes(&buf, 1, 4);
+        let v = copy_bytes(&buf, VERSION_SIZE, 4);
         println!("version: {:x?}", v);
 
         Self {
@@ -47,14 +54,25 @@ impl Iterator for Chunks {
         // len varint size
         self.current_pos += size;
         // encoding byte
-        self.current_pos += 1;
+        self.current_pos += ENCODING_SIZE;
         // data length
         self.current_pos += len as usize;
         // checksum bytes
-        self.current_pos += 4;
+        self.current_pos += CHECKSUM_SIZE;
 
-        // let data = copy_bytes(&self.buf, size + 1 + len as usize + 4, start);
-        // println!("{:?}", data);
+        // verify checksum
+        // the checksum is created over the encoding and data
+        let data = copy_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
+
+        let cs: [u8; 4] = copy_bytes(&self.buf, 4, self.current_pos - 4)
+            .try_into()
+            .expect("couldn't get checksum bytes");
+        let cs_num = u32::from_be_bytes(cs);
+        let crc = CASTAGNIOLI.checksum(&data);
+
+        if cs_num != crc {
+            return None;
+        }
 
         return Some(start);
     }
