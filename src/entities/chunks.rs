@@ -64,9 +64,10 @@ impl Iterator for Chunks {
         // the checksum is created over the encoding and data
         let data = copy_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
 
-        let cs: [u8; 4] = copy_bytes(&self.buf, 4, self.current_pos - 4)
-            .try_into()
-            .expect("couldn't get checksum bytes");
+        let cs: [u8; CHECKSUM_SIZE] =
+            copy_bytes(&self.buf, CHECKSUM_SIZE, self.current_pos - CHECKSUM_SIZE)
+                .try_into()
+                .expect("couldn't get checksum bytes");
         let cs_num = u32::from_be_bytes(cs);
         let crc = CASTAGNIOLI.checksum(&data);
 
