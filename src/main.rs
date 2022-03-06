@@ -31,5 +31,9 @@ fn main() {
         let sym_table = index.symbol_table();
 
         println!("{:?}", sym_table);
+
+        for s in sym_table {
+            println!("{}", s)
+        }
     }
 }

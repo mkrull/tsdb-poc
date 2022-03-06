@@ -1,5 +1,5 @@
 use crc::{Crc, CRC_32_ISCSI};
-use std::{fs::File, io::Read, path::Path, process};
+use std::{fs::File, io::Read, path::Path, process, str};
 
 #[path = "common.rs"]
 mod common;
@@ -31,12 +31,12 @@ impl Index {
         f.read_to_end(&mut buf).expect("Error reading into buf");
 
         let m = copy_bytes(&buf, MAGIC_SIZE, 0);
-        println!("magic: {:x?}", m);
-
         let v = copy_bytes(&buf, VERSION_SIZE, 4);
-        println!("version: {:x?}", v);
 
-        println!("version: {:x?}", buf);
+        println!("magic: {:x?}", m);
+        println!("version: {:x?}", v);
+        println!("buf: {:x?}", buf);
+
         Self {
             buf,
             current_pos: 5,
@@ -56,6 +56,14 @@ impl Index {
 
         self.advance_pos(CHECKSUM_SIZE);
 
+        let num = get_as_num(&table_buf, 0);
+        println!("num: {}", num);
+        let data = copy_bytes(
+            &table_buf,
+            table_buf.len() - NUM_SYMBOLS_SIZE,
+            NUM_SYMBOLS_SIZE,
+        );
+
         println!("{:x?}", table_buf);
         if cs != crc {
             println!("Checksum mismatch. Corrupted symbol table.");
@@ -63,8 +71,8 @@ impl Index {
         }
 
         SymbolTable {
-            num_symbols: 0,
-            buf: table_buf,
+            num: num as usize,
+            buf: data,
             current_pos: 0,
         }
     }
@@ -72,7 +80,32 @@ impl Index {
 
 #[derive(Debug)]
 pub struct SymbolTable {
-    num_symbols: usize,
+    num: usize,
     buf: Vec<u8>,
     current_pos: usize,
+}
+
+impl Iterator for SymbolTable {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (len, size) = get_uvarint(&self.buf, self.current_pos);
+        if size == 0 {
+            return None;
+        }
+        self.current_pos += size;
+
+        let data = copy_bytes(&self.buf, len as usize, self.current_pos);
+
+        // data length
+        self.current_pos += len as usize;
+
+        match str::from_utf8(&data) {
+            Ok(s) => Some(s.to_string()),
+            Err(e) => {
+                println!("{}", e);
+                None
+            }
+        }
+    }
 }
