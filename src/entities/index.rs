@@ -44,36 +44,29 @@ impl Index {
     }
 
     pub fn symbol_table(&mut self) -> SymbolTable {
-        let len_buf: [u8; SYMBOLS_LEN_SIZE] =
-            copy_bytes(&self.buf, SYMBOLS_LEN_SIZE, self.current_pos)
-                .try_into()
-                .expect("couldn't get checksum bytes");
-        let len = u32::from_be_bytes(len_buf);
+        let len = get_as_num(&self.buf, self.current_pos);
         self.advance_pos(SYMBOLS_LEN_SIZE);
         println!("len: {}", len);
 
         let table_buf = copy_bytes(&self.buf, len as usize, self.current_pos);
         self.advance_pos(len as usize);
 
-        let cs: [u8; CHECKSUM_SIZE] = copy_bytes(&self.buf, CHECKSUM_SIZE, self.current_pos)
-            .try_into()
-            .expect("couldn't get checksum bytes");
-        let cs_num = u32::from_be_bytes(cs);
+        let cs = get_checksum(&self.buf, self.current_pos);
         let crc = CASTAGNIOLI.checksum(&table_buf);
 
         self.advance_pos(CHECKSUM_SIZE);
 
         println!("{:x?}", table_buf);
-        if cs_num != crc {
+        if cs != crc {
             println!("Checksum mismatch. Corrupted symbol table.");
             process::exit(1);
         }
 
-        return SymbolTable {
+        SymbolTable {
             num_symbols: 0,
             buf: table_buf,
             current_pos: 0,
-        };
+        }
     }
 }
 

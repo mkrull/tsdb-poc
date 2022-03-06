@@ -19,7 +19,7 @@ fn main() {
         let mut chunk_positions: Vec<usize> = Vec::new();
         let chunks = entities::chunks::Chunks::new(file);
 
-        for i in chunks.into_iter() {
+        for i in chunks {
             chunk_positions.push(i);
         }
 
