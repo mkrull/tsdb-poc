@@ -43,34 +43,42 @@ impl Iterator for Chunks {
 
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.current_pos;
-        let (len, size) = get_uvarint(&self.buf, self.current_pos);
-        //println!("{} {} {}", len, size, self.current_pos);
-        if size == 0 {
-            return None;
+        match get_uvarint(&self.buf, self.current_pos) {
+            Ok((len, size)) => {
+                //println!("{} {} {}", len, size, self.current_pos);
+                if size == 0 {
+                    return None;
+                }
+                // NOTE: sizes of segments according to:
+                // https://github.com/prometheus/prometheus/blob/main/tsdb/chunks/chunks.go#L37
+                //
+                // len varint size
+                self.current_pos += size;
+                // encoding byte
+                self.current_pos += ENCODING_SIZE;
+                // data length
+                self.current_pos += len as usize;
+                // checksum bytes
+                self.current_pos += CHECKSUM_SIZE;
+
+                // verify checksum
+                // the checksum is created over the encoding and data
+                let data = copy_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
+
+                match get_as_num(&self.buf, self.current_pos) {
+                    Ok(cs) => {
+                        let crc = CASTAGNIOLI.checksum(&data);
+
+                        if cs != crc {
+                            return None;
+                        }
+
+                        return Some(start);
+                    }
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
         }
-        // NOTE: sizes of segments according to:
-        // https://github.com/prometheus/prometheus/blob/main/tsdb/chunks/chunks.go#L37
-        //
-        // len varint size
-        self.current_pos += size;
-        // encoding byte
-        self.current_pos += ENCODING_SIZE;
-        // data length
-        self.current_pos += len as usize;
-        // checksum bytes
-        self.current_pos += CHECKSUM_SIZE;
-
-        // verify checksum
-        // the checksum is created over the encoding and data
-        let data = copy_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
-
-        let cs = get_as_num(&self.buf, self.current_pos);
-        let crc = CASTAGNIOLI.checksum(&data);
-
-        if cs != crc {
-            return None;
-        }
-
-        return Some(start);
     }
 }

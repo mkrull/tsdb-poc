@@ -29,11 +29,13 @@ fn main() {
     if let Some(file) = cli.index_file.as_deref() {
         let mut index = entities::index::Index::new(file);
         let sym_table = index.symbol_table();
-
-        println!("{:?}", sym_table);
-
-        for s in sym_table {
-            println!("{}", s)
+        match sym_table {
+            Ok(t) => {
+                for s in t {
+                    println!("{}", s);
+                }
+            }
+            Err(e) => eprintln!("Error"),
         }
     }
 }

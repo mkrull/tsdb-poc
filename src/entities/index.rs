@@ -1,5 +1,5 @@
 use crc::{Crc, CRC_32_ISCSI};
-use std::{fs::File, io::Read, path::Path, process, str};
+use std::{fs::File, io::Read, path::Path, str};
 
 #[path = "common.rs"]
 mod common;
@@ -11,7 +11,6 @@ const MAGIC_SIZE: usize = 4;
 const VERSION_SIZE: usize = 1;
 const NUM_SYMBOLS_SIZE: usize = 4;
 const SYMBOLS_LEN_SIZE: usize = 4;
-
 // NOTE: Format of an index file:
 // https://github.com/prometheus/prometheus/blob/main/tsdb/docs/format/index.md
 pub struct Index {
@@ -35,7 +34,7 @@ impl Index {
 
         println!("magic: {:x?}", m);
         println!("version: {:x?}", v);
-        println!("buf: {:x?}", buf);
+        //println!("buf: {:x?}", buf);
 
         Self {
             buf,
@@ -43,20 +42,20 @@ impl Index {
         }
     }
 
-    pub fn symbol_table(&mut self) -> SymbolTable {
-        let len = get_as_num(&self.buf, self.current_pos);
+    pub fn symbol_table(&mut self) -> common::Result<SymbolTable> {
+        let len = get_as_num(&self.buf, self.current_pos)?;
         self.advance_pos(SYMBOLS_LEN_SIZE);
         println!("len: {}", len);
 
         let table_buf = copy_bytes(&self.buf, len as usize, self.current_pos);
         self.advance_pos(len as usize);
 
-        let cs = get_checksum(&self.buf, self.current_pos);
+        let cs = get_checksum(&self.buf, self.current_pos)?;
         let crc = CASTAGNIOLI.checksum(&table_buf);
 
         self.advance_pos(CHECKSUM_SIZE);
 
-        let num = get_as_num(&table_buf, 0);
+        let num = get_as_num(&table_buf, 0)?;
         println!("num: {}", num);
         let data = copy_bytes(
             &table_buf,
@@ -64,17 +63,17 @@ impl Index {
             NUM_SYMBOLS_SIZE,
         );
 
-        println!("{:x?}", table_buf);
+        //println!("{:x?}", table_buf);
         if cs != crc {
             println!("Checksum mismatch. Corrupted symbol table.");
-            process::exit(1);
+            return Err(common::TSDBError);
         }
 
-        SymbolTable {
+        Ok(SymbolTable {
             num: num as usize,
             buf: data,
             current_pos: 0,
-        }
+        })
     }
 }
 
@@ -89,23 +88,27 @@ impl Iterator for SymbolTable {
     type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (len, size) = get_uvarint(&self.buf, self.current_pos);
-        if size == 0 {
-            return None;
-        }
-        self.current_pos += size;
+        match get_uvarint(&self.buf, self.current_pos) {
+            Ok((len, size)) => {
+                if size == 0 {
+                    return None;
+                }
+                self.current_pos += size;
 
-        let data = copy_bytes(&self.buf, len as usize, self.current_pos);
+                let data = copy_bytes(&self.buf, len as usize, self.current_pos);
 
-        // data length
-        self.current_pos += len as usize;
+                // data length
+                self.current_pos += len as usize;
 
-        match str::from_utf8(&data) {
-            Ok(s) => Some(s.to_string()),
-            Err(e) => {
-                println!("{}", e);
-                None
+                match str::from_utf8(&data) {
+                    Ok(s) => Some(s.to_string()),
+                    Err(e) => {
+                        println!("{}", e);
+                        None
+                    }
+                }
             }
+            Err(e) => None,
         }
     }
 }
