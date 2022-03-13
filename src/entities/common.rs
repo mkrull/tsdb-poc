@@ -37,3 +37,10 @@ pub fn get_as_num(buf: &[u8], pos: usize) -> Result<u32> {
         .expect("An error");
     Ok(u32::from_be_bytes(cs))
 }
+
+pub fn get_as_num64(buf: &[u8], pos: usize) -> u64 {
+    let cs: [u8; 8] = copy_bytes(buf, 8, pos)
+        .try_into()
+        .expect("couldn't get checksum bytes");
+    u64::from_be_bytes(cs)
+}

@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::path::PathBuf;
+use std::{mem::size_of, path::PathBuf};
 
 mod entities;
 
@@ -27,15 +27,13 @@ fn main() {
     }
 
     if let Some(file) = cli.index_file.as_deref() {
-        let mut index = entities::index::Index::new(file);
-        let sym_table = index.symbol_table();
-        match sym_table {
-            Ok(t) => {
-                for s in t {
-                    println!("{}", s);
-                }
-            }
-            Err(e) => eprintln!("Error"),
+        let index = entities::index::Index::new(file);
+
+        println!("{:?}", &index);
+        let sym_table = index.symbol_table;
+
+        for s in sym_table {
+            println!("{}", s)
         }
     }
 }
