@@ -28,19 +28,20 @@ pub fn copy_bytes(buf: &[u8], size: usize, pos: usize) -> Vec<u8> {
 }
 
 pub fn get_checksum(buf: &[u8], pos: usize) -> Result<u32> {
-    get_as_num(buf, pos)
+    read_u32(buf, pos)
 }
 
-pub fn get_as_num(buf: &[u8], pos: usize) -> Result<u32> {
-    let cs: [u8; size_of::<u32>()] = copy_bytes(buf, size_of::<u32>(), pos)
-        .try_into()
-        .expect("An error");
-    Ok(u32::from_be_bytes(cs))
+macro_rules! read {
+    ($func:ident, $typ:ty) => {
+        pub fn $func(buf: &[u8], pos: usize) -> Result<$typ> {
+            let b = copy_bytes(buf, size_of::<$typ>(), pos);
+            match TryInto::<[u8; size_of::<$typ>()]>::try_into(b) {
+                Ok(bytes) => Ok(<$typ>::from_be_bytes(bytes)),
+                Err(_) => Err(TSDBError),
+            }
+        }
+    };
 }
 
-pub fn get_as_num64(buf: &[u8], pos: usize) -> u64 {
-    let cs: [u8; 8] = copy_bytes(buf, 8, pos)
-        .try_into()
-        .expect("couldn't get checksum bytes");
-    u64::from_be_bytes(cs)
-}
+read!(read_u32, u32);
+read!(read_u64, u64);

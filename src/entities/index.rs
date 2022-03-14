@@ -60,17 +60,17 @@ impl Index {
         }
 
         let mut current_pos = 0;
-        let symbols = get_as_num64(&toc_buf, current_pos);
+        let symbols = read_u64(&toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let series = get_as_num64(&toc_buf, current_pos);
+        let series = read_u64(&toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let label_index_start = get_as_num64(&toc_buf, current_pos);
+        let label_index_start = read_u64(&toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let label_offset_table = get_as_num64(&toc_buf, current_pos);
+        let label_offset_table = read_u64(&toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let postings_start = get_as_num64(&toc_buf, current_pos);
+        let postings_start = read_u64(&toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let postings_offset_table = get_as_num64(&toc_buf, current_pos);
+        let postings_offset_table = read_u64(&toc_buf, current_pos)?;
 
         Ok(TOC {
             symbols,
@@ -84,7 +84,7 @@ impl Index {
 
     fn symbol_table(buf: &[u8], pos: usize) -> common::Result<SymbolTable> {
         let mut curr = pos;
-        let len = get_as_num(&buf, curr)?;
+        let len = read_u32(&buf, curr)?;
         curr += SYMBOLS_LEN_SIZE;
         println!("len: {}", len);
 
@@ -96,7 +96,7 @@ impl Index {
 
         curr += CHECKSUM_SIZE;
 
-        let num = get_as_num(&table_buf, 0)?;
+        let num = read_u32(&table_buf, 0)?;
         println!("num: {}", num);
         let data = copy_bytes(
             &table_buf,
