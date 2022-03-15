@@ -20,7 +20,6 @@ const TOC_SIZE: usize = size_of::<TOC>();
 pub struct Index {
     buf: Vec<u8>,
     toc: TOC,
-    pub symbol_table: SymbolTable,
 }
 
 impl Index {
@@ -37,14 +36,8 @@ impl Index {
         println!("version: {:x?}", v);
 
         let toc = Index::toc(&buf).expect("Could not load TOC.");
-        let symbol_table =
-            Index::symbol_table(&buf, toc.symbols as usize).expect("Could not load symbol table.");
 
-        Self {
-            toc,
-            buf,
-            symbol_table,
-        }
+        Self { toc, buf }
     }
 
     fn toc(buf: &[u8]) -> common::Result<TOC> {
@@ -81,41 +74,41 @@ impl Index {
             postings_offset_table,
         })
     }
+}
 
-    fn symbol_table(buf: &[u8], pos: usize) -> common::Result<SymbolTable> {
-        let mut curr = pos;
-        let len = read_u32(&buf, curr)?;
-        curr += SYMBOLS_LEN_SIZE;
-        println!("len: {}", len);
+pub fn symbol_table(i: &Index) -> common::Result<SymbolTable> {
+    let mut curr = i.toc.symbols as usize;
+    let len = read_u32(&i.buf, curr)?;
+    curr += SYMBOLS_LEN_SIZE;
+    println!("len: {}", len);
 
-        let table_buf = copy_bytes(&buf, len as usize, curr);
-        curr += len as usize;
+    let table_buf = copy_bytes(&i.buf, len as usize, curr);
+    curr += len as usize;
 
-        let cs = get_checksum(&buf, curr)?;
-        let crc = CASTAGNIOLI.checksum(&table_buf);
+    let cs = get_checksum(&i.buf, curr)?;
+    let crc = CASTAGNIOLI.checksum(&table_buf);
 
-        curr += CHECKSUM_SIZE;
+    curr += CHECKSUM_SIZE;
 
-        let num = read_u32(&table_buf, 0)?;
-        println!("num: {}", num);
-        let data = copy_bytes(
-            &table_buf,
-            table_buf.len() - NUM_SYMBOLS_SIZE,
-            NUM_SYMBOLS_SIZE,
-        );
+    let num = read_u32(&table_buf, 0)?;
+    println!("num: {}", num);
+    let data = copy_bytes(
+        &table_buf,
+        table_buf.len() - NUM_SYMBOLS_SIZE,
+        NUM_SYMBOLS_SIZE,
+    );
 
-        //println!("{:x?}", table_buf);
-        if cs != crc {
-            println!("Checksum mismatch. Corrupted symbol table.");
-            return Err(common::TSDBError);
-        }
-
-        Ok(SymbolTable {
-            num: num as usize,
-            buf: data,
-            current_pos: 0,
-        })
+    //println!("{:x?}", table_buf);
+    if cs != crc {
+        println!("Checksum mismatch. Corrupted symbol table.");
+        return Err(common::TSDBError);
     }
+
+    Ok(SymbolTable {
+        num: num as usize,
+        buf: data,
+        current_pos: 0,
+    })
 }
 
 // ┌────────────────────┬─────────────────────┐
