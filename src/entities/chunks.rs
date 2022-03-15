@@ -13,6 +13,7 @@ const VERSION_SIZE: usize = 1;
 
 // NOTE: Format of a chunk file:
 // https://github.com/prometheus/prometheus/blob/main/tsdb/docs/format/chunks.md
+#[derive(Debug)]
 pub struct Chunks {
     buf: Vec<u8>,
     current_pos: usize,
@@ -43,9 +44,8 @@ impl Iterator for Chunks {
 
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.current_pos;
-        match get_uvarint(&self.buf, self.current_pos) {
+        match read_varint_u32(&self.buf, self.current_pos) {
             Ok((len, size)) => {
-                //println!("{} {} {}", len, size, self.current_pos);
                 if size == 0 {
                     return None;
                 }
@@ -65,7 +65,7 @@ impl Iterator for Chunks {
                 // the checksum is created over the encoding and data
                 let data = copy_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
 
-                match read_u32(&self.buf, self.current_pos) {
+                match get_checksum(&self.buf, self.current_pos - CHECKSUM_SIZE) {
                     Ok(cs) => {
                         let crc = CASTAGNIOLI.checksum(&data);
 

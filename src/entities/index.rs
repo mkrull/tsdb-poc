@@ -40,7 +40,7 @@ impl Index {
         Self { toc, buf }
     }
 
-    fn toc(buf: &[u8]) -> common::Result<TOC> {
+    fn toc(buf: &[u8]) -> Result<TOC> {
         // get table of content
         let pos = buf.len() - TOC_SIZE - CHECKSUM_SIZE;
         let toc_buf = copy_bytes(&buf, TOC_SIZE, pos);
@@ -76,7 +76,7 @@ impl Index {
     }
 }
 
-pub fn symbol_table(i: &Index) -> common::Result<SymbolTable> {
+pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     let mut curr = i.toc.symbols as usize;
     let len = read_u32(&i.buf, curr)?;
     curr += SYMBOLS_LEN_SIZE;
@@ -101,7 +101,7 @@ pub fn symbol_table(i: &Index) -> common::Result<SymbolTable> {
     //println!("{:x?}", table_buf);
     if cs != crc {
         println!("Checksum mismatch. Corrupted symbol table.");
-        return Err(common::TSDBError);
+        return Err(TSDBError);
     }
 
     Ok(SymbolTable {
@@ -135,7 +135,7 @@ impl Iterator for SymbolTable {
     type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match get_uvarint(&self.buf, self.current_pos) {
+        match read_varint_u32(&self.buf, self.current_pos) {
             Ok((len, size)) => {
                 if size == 0 {
                     return None;
@@ -155,11 +155,74 @@ impl Iterator for SymbolTable {
                     }
                 }
             }
-            Err(e) => None,
+            Err(_) => None,
         }
     }
 }
 
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │ len <uvarint>                                                            │
+// ├──────────────────────────────────────────────────────────────────────────┤
+// │ ┌──────────────────────────────────────────────────────────────────────┐ │
+// │ │                     labels count <uvarint64>                         │ │
+// │ ├──────────────────────────────────────────────────────────────────────┤ │
+// │ │              ┌────────────────────────────────────────────┐          │ │
+// │ │              │ ref(l_i.name) <uvarint32>                  │          │ │
+// │ │              ├────────────────────────────────────────────┤          │ │
+// │ │              │ ref(l_i.value) <uvarint32>                 │          │ │
+// │ │              └────────────────────────────────────────────┘          │ │
+// │ │                             ...                                      │ │
+// │ ├──────────────────────────────────────────────────────────────────────┤ │
+// │ │                     chunks count <uvarint64>                         │ │
+// │ ├──────────────────────────────────────────────────────────────────────┤ │
+// │ │              ┌────────────────────────────────────────────┐          │ │
+// │ │              │ c_0.mint <varint64>                        │          │ │
+// │ │              ├────────────────────────────────────────────┤          │ │
+// │ │              │ c_0.maxt - c_0.mint <uvarint64>            │          │ │
+// │ │              ├────────────────────────────────────────────┤          │ │
+// │ │              │ ref(c_0.data) <uvarint64>                  │          │ │
+// │ │              └────────────────────────────────────────────┘          │ │
+// │ │              ┌────────────────────────────────────────────┐          │ │
+// │ │              │ c_i.mint - c_i-1.maxt <uvarint64>          │          │ │
+// │ │              ├────────────────────────────────────────────┤          │ │
+// │ │              │ c_i.maxt - c_i.mint <uvarint64>            │          │ │
+// │ │              ├────────────────────────────────────────────┤          │ │
+// │ │              │ ref(c_i.data) - ref(c_i-1.data) <varint64> │          │ │
+// │ │              └────────────────────────────────────────────┘          │ │
+// │ │                             ...                                      │ │
+// │ └──────────────────────────────────────────────────────────────────────┘ │
+// ├──────────────────────────────────────────────────────────────────────────┤
+// │ CRC32 <4b>                                                               │
+// └──────────────────────────────────────────────────────────────────────────┘
+#[derive(Debug)]
+pub struct Series {
+    num: usize,
+    buf: Vec<u8>,
+    current_pos: usize,
+}
+
+impl Iterator for Series {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match read_varint_u32(&self.buf, self.current_pos) {
+            Ok((len, size)) => {
+                if size == 0 {
+                    return None;
+                }
+                self.current_pos += size;
+
+                let data = copy_bytes(&self.buf, len as usize, self.current_pos);
+
+                // data length
+                self.current_pos += len as usize;
+
+                Some(data)
+            }
+            Err(_) => None,
+        }
+    }
+}
 // ┌─────────────────────────────────────────┐
 // │ ref(symbols) <8b>                       │
 // ├─────────────────────────────────────────┤
