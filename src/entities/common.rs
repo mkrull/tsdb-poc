@@ -25,7 +25,7 @@ macro_rules! read_varint {
             let uvarint_vec = copy_bytes(buf, size_of::<$typ>(), pos);
             match decode::$ti(&uvarint_vec) {
                 Ok((int, rest)) => Ok((int, size_of::<$typ>() - rest.len())),
-                Err(e) => {
+                Err(_) => {
                     return Err(TSDBError);
                 }
             }
@@ -34,7 +34,7 @@ macro_rules! read_varint {
 }
 
 read_varint!(read_varint_u32, u32, u32);
-read_varint!(read_varint_u64, u64, u64);
+//read_varint!(read_varint_u64, u64, u64);
 
 macro_rules! read {
     ($func:ident, $typ:ty) => {

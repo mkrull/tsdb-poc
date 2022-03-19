@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-mod entities;
+pub mod entities;
 use entities::chunks;
 use entities::index;
 

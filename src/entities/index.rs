@@ -1,9 +1,7 @@
 use crc::{Crc, CRC_32_ISCSI};
 use std::{fs::File, io::Read, mem::size_of, path::Path, process, str};
 
-#[path = "common.rs"]
-mod common;
-use common::*;
+use crate::entities::common::*;
 
 const CASTAGNIOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 const CHECKSUM_SIZE: usize = 4;
@@ -43,8 +41,8 @@ impl Index {
     fn toc(buf: &[u8]) -> Result<TOC> {
         // get table of content
         let pos = buf.len() - TOC_SIZE - CHECKSUM_SIZE;
-        let toc_buf = copy_bytes(&buf, TOC_SIZE, pos);
-        let cs = get_checksum(&buf, pos + TOC_SIZE)?;
+        let toc_buf = copy_bytes(buf, TOC_SIZE, pos);
+        let cs = get_checksum(buf, pos + TOC_SIZE)?;
         let crc = CASTAGNIOLI.checksum(&toc_buf);
 
         if cs != crc {
@@ -88,10 +86,6 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     let cs = get_checksum(&i.buf, curr)?;
     let crc = CASTAGNIOLI.checksum(&table_buf);
 
-    curr += CHECKSUM_SIZE;
-
-    let num = read_u32(&table_buf, 0)?;
-    println!("num: {}", num);
     let data = copy_bytes(
         &table_buf,
         table_buf.len() - NUM_SYMBOLS_SIZE,
@@ -105,7 +99,6 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     }
 
     Ok(SymbolTable {
-        num: num as usize,
         buf: data,
         current_pos: 0,
     })
@@ -126,7 +119,6 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
 // └──────────────────────────────────────────┘
 #[derive(Debug)]
 pub struct SymbolTable {
-    num: usize,
     buf: Vec<u8>,
     current_pos: usize,
 }
@@ -196,7 +188,6 @@ impl Iterator for SymbolTable {
 // └──────────────────────────────────────────────────────────────────────────┘
 #[derive(Debug)]
 pub struct Series {
-    num: usize,
     buf: Vec<u8>,
     current_pos: usize,
 }
@@ -238,12 +229,54 @@ impl Iterator for Series {
 // ├─────────────────────────────────────────┤
 // │ CRC32 <4b>                              │
 // └─────────────────────────────────────────┘
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TOC {
     symbols: u64,
     series: u64,
     label_index_start: u64,
-    label_offset_table: u64,
     postings_start: u64,
+    label_offset_table: u64,
     postings_offset_table: u64,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn load_index() -> Index {
+        let test_index = Path::new("testdata/index_format_v1/index");
+        Index::new(test_index)
+    }
+
+    #[test]
+    fn load_test_index() {
+        let index = load_index();
+
+        let expected = TOC {
+            symbols: 5,
+            series: 323,
+            label_index_start: 1806,
+            postings_start: 2248,
+            label_offset_table: 4300,
+            postings_offset_table: 4326,
+        };
+
+        assert_eq!(expected, index.toc);
+    }
+
+    #[test]
+    fn load_symbol_table() {
+        let index = load_index();
+
+        // build expected vec ["0", "1", "10", ..., "foo", "meh"]
+        let mut expected: Vec<String> = (0..100).map(|i| i.to_string()).collect();
+        expected.sort();
+        expected.push("bar".to_string());
+        expected.push("baz".to_string());
+        expected.push("foo".to_string());
+        expected.push("meh".to_string());
+
+        let sym_table = symbol_table(&index).unwrap();
+        assert_eq!(expected, sym_table.collect::<Vec<String>>())
+    }
 }

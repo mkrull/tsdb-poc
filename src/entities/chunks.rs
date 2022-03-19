@@ -73,12 +73,30 @@ impl Iterator for Chunks {
                             return None;
                         }
 
-                        return Some(start);
+                        Some(start)
                     }
                     Err(_) => None,
                 }
             }
             Err(_) => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn load_chunks() -> Chunks {
+        let test_chunks = Path::new("testdata/index_format_v1/chunks/000001");
+        Chunks::new(test_chunks)
+    }
+
+    #[test]
+    fn load_test_chunks() {
+        let chunks = load_chunks();
+
+        let expected = 102;
+        assert_eq!(expected, chunks.collect::<Vec<usize>>().len());
     }
 }
