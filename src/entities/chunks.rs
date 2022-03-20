@@ -13,6 +13,7 @@ const VERSION_SIZE: usize = 1;
 
 // NOTE: Format of a chunk file:
 // https://github.com/prometheus/prometheus/blob/main/tsdb/docs/format/chunks.md
+#[derive(Debug)]
 pub struct Chunks {
     buf: Vec<u8>,
     current_pos: usize,
@@ -43,37 +44,59 @@ impl Iterator for Chunks {
 
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.current_pos;
-        let (len, size) = get_uvarint(&self.buf, self.current_pos);
-        //println!("{} {} {}", len, size, self.current_pos);
-        if size == 0 {
-            return None;
+        match read_varint_u32(&self.buf, self.current_pos) {
+            Ok((len, size)) => {
+                if size == 0 {
+                    return None;
+                }
+                // NOTE: sizes of segments according to:
+                // https://github.com/prometheus/prometheus/blob/main/tsdb/chunks/chunks.go#L37
+                //
+                // len varint size
+                self.current_pos += size;
+                // encoding byte
+                self.current_pos += ENCODING_SIZE;
+                // data length
+                self.current_pos += len as usize;
+                // checksum bytes
+                self.current_pos += CHECKSUM_SIZE;
+
+                // verify checksum
+                // the checksum is created over the encoding and data
+                let data = copy_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
+
+                match get_checksum(&self.buf, self.current_pos - CHECKSUM_SIZE) {
+                    Ok(cs) => {
+                        let crc = CASTAGNIOLI.checksum(&data);
+
+                        if cs != crc {
+                            return None;
+                        }
+
+                        Some(start)
+                    }
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
         }
-        // NOTE: sizes of segments according to:
-        // https://github.com/prometheus/prometheus/blob/main/tsdb/chunks/chunks.go#L37
-        //
-        // len varint size
-        self.current_pos += size;
-        // encoding byte
-        self.current_pos += ENCODING_SIZE;
-        // data length
-        self.current_pos += len as usize;
-        // checksum bytes
-        self.current_pos += CHECKSUM_SIZE;
+    }
+}
 
-        // verify checksum
-        // the checksum is created over the encoding and data
-        let data = copy_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
+#[cfg(test)]
+mod test {
+    use super::*;
 
-        let cs: [u8; 4] = copy_bytes(&self.buf, 4, self.current_pos - 4)
-            .try_into()
-            .expect("couldn't get checksum bytes");
-        let cs_num = u32::from_be_bytes(cs);
-        let crc = CASTAGNIOLI.checksum(&data);
+    fn load_chunks() -> Chunks {
+        let test_chunks = Path::new("testdata/index_format_v1/chunks/000001");
+        Chunks::new(test_chunks)
+    }
 
-        if cs_num != crc {
-            return None;
-        }
+    #[test]
+    fn load_test_chunks() {
+        let chunks = load_chunks();
 
-        return Some(start);
+        let expected = 102;
+        assert_eq!(expected, chunks.collect::<Vec<usize>>().len());
     }
 }
