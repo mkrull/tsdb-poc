@@ -38,7 +38,7 @@ macro_rules! read_varint {
 }
 
 read_varint!(read_varint_u32, u32, u32);
-//read_varint!(read_varint_u64, u64, u64);
+read_varint!(read_varint_u64, u64, u64);
 
 macro_rules! read {
     ($func:ident, $typ:ty) => {

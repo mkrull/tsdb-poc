@@ -31,10 +31,15 @@ fn main() {
     if let Some(file) = cli.index_file.as_deref() {
         let index = index::Index::new(file);
 
-        let sym_table = index::symbol_table(&index).unwrap();
+        let series = index::series(&index).unwrap();
 
-        for s in sym_table {
-            println!("{}", s)
+        for s in series {
+            println!("{:?}", s);
+            for (k, v) in s.labels.into_iter() {
+                let key = index.read_symbol(k).unwrap();
+                let val = index.read_symbol(v).unwrap();
+                println!("labels: {} -> {}", key, val);
+            }
         }
     }
 }

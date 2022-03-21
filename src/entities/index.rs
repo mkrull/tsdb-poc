@@ -1,5 +1,5 @@
 use crc::{Crc, CRC_32_ISCSI};
-use std::{fs::File, io::Read, mem::size_of, path::Path, process, str};
+use std::{collections::HashMap, fs::File, io::Read, mem::size_of, path::Path, process, str};
 
 use crate::entities::common::*;
 
@@ -47,7 +47,7 @@ impl Index {
 
         if cs != crc {
             println!("Checksum mismatch. Corrupted table of content.");
-            process::exit(1);
+            return Err(TSDBError);
         }
 
         let mut current_pos = 0;
@@ -71,6 +71,29 @@ impl Index {
             postings_start,
             postings_offset_table,
         })
+    }
+
+    pub fn read_symbol(&self, pos: usize) -> Result<String> {
+        let mut p = pos;
+        match read_varint_u32(&self.buf, p) {
+            Ok((len, size)) => {
+                if size == 0 {
+                    return Err(TSDBError);
+                }
+                p += size;
+
+                let data = slice_bytes(&self.buf, len as usize, p);
+
+                // data length
+                p += len as usize;
+
+                match str::from_utf8(&data) {
+                    Ok(s) => Ok(s.to_string()),
+                    Err(e) => Err(TSDBError),
+                }
+            }
+            Err(_) => Err(TSDBError),
+        }
     }
 }
 
@@ -99,6 +122,20 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     }
 
     Ok(SymbolTable {
+        buf: data,
+        current_pos: 0,
+    })
+}
+
+pub fn series(i: &Index) -> Result<Series> {
+    let start = i.toc.series as usize;
+    let end = i.toc.label_index_start as usize;
+
+    // TODO: slice here, will require tying series to the lifetime of the index
+    // explicitly
+    let data = copy_bytes(&i.buf, end - start, start);
+
+    Ok(Series {
         buf: data,
         current_pos: 0,
     })
@@ -152,6 +189,8 @@ impl Iterator for SymbolTable {
     }
 }
 
+impl SymbolTable {}
+
 // ┌──────────────────────────────────────────────────────────────────────────┐
 // │ len <uvarint>                                                            │
 // ├──────────────────────────────────────────────────────────────────────────┤
@@ -192,23 +231,82 @@ pub struct Series {
     current_pos: usize,
 }
 
+#[derive(Debug)]
+pub struct SeriesItem {
+    pub labels: HashMap<usize, usize>,
+}
+
+impl TryFrom<&[u8]> for SeriesItem {
+    type Error = TSDBError;
+
+    fn try_from(buf: &[u8]) -> std::result::Result<Self, Self::Error> {
+        let mut pos = 0;
+        let (num_labels, size) = read_varint_u64(&buf, pos)?;
+        pos += size;
+        println!("num labels: {}", num_labels);
+
+        let mut labels = HashMap::<usize, usize>::new();
+        for i in 0..num_labels {
+            let (k, size) = read_varint_u32(&buf, pos)?;
+            pos += size;
+            let (v, size) = read_varint_u32(&buf, pos)?;
+            pos += size;
+
+            // TODO: properly resolve from symbol table
+            println!("labels: {} {}", k, v);
+            labels.insert(k as usize, v as usize);
+        }
+
+        Ok(SeriesItem { labels })
+    }
+}
+
+#[derive(Debug)]
+pub struct SeriesChunk {
+    min_time: u64,
+    max_time: u64,
+    // TODO: data: Vec<u8>,
+    data: (u64, u64),
+}
+
 impl Iterator for Series {
-    type Item = Vec<u8>;
+    type Item = SeriesItem;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // be done if we reached the end of the buffer
+        println!("series pos: {}, len: {}", self.current_pos, self.buf.len());
+        if self.current_pos >= self.buf.len() {
+            return None;
+        }
         match read_varint_u32(&self.buf, self.current_pos) {
             Ok((len, size)) => {
+                println!("item len: {}, size: {}", len, size);
                 if size == 0 {
                     return None;
                 }
                 self.current_pos += size;
-
-                let data = copy_bytes(&self.buf, len as usize, self.current_pos);
-
-                // data length
+                // if len is 0 keep going
+                if len == 0 {
+                    return self.next();
+                }
+                let data = slice_bytes(&self.buf, len as usize, self.current_pos);
+                println!("{:x?}", &data);
                 self.current_pos += len as usize;
+                match get_checksum(&self.buf, self.current_pos) {
+                    Ok(cs) => {
+                        let crc = CASTAGNIOLI.checksum(&data);
+                        if cs != crc {
+                            println!("checksum mismatch");
+                            return None;
+                        }
 
-                Some(data)
+                        let item: SeriesItem = data.try_into().unwrap();
+                        self.current_pos += CHECKSUM_SIZE;
+
+                        return Some(item);
+                    }
+                    Err(_) => return None,
+                }
             }
             Err(_) => None,
         }
@@ -279,5 +377,31 @@ mod test {
 
         let sym_table = symbol_table(&index).unwrap();
         assert_eq!(expected, sym_table.collect::<Vec<String>>())
+    }
+
+    #[test]
+    fn load_series() {
+        let index = load_index();
+
+        // expected count of series
+        let expected_count = 102;
+        let mut expected: HashMap<String, String> = (0..100)
+            .map(|i| ("bar".to_string(), i.to_string()))
+            .collect();
+        expected.insert("foo".to_string(), "baz".to_string());
+
+        let series = series(&index).unwrap();
+        let mut count = 0;
+        let mut got = HashMap::<String, String>::new();
+        for s in series {
+            count += 1;
+            for (k, v) in s.labels.into_iter() {
+                let key = index.read_symbol(k).unwrap();
+                let val = index.read_symbol(v).unwrap();
+                got.insert(key, val);
+            }
+        }
+        assert_eq!(expected_count, count);
+        assert_eq!(expected, got);
     }
 }
