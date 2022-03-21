@@ -41,7 +41,7 @@ impl Index {
     fn toc(buf: &[u8]) -> Result<TOC> {
         // get table of content
         let pos = buf.len() - TOC_SIZE - CHECKSUM_SIZE;
-        let toc_buf = copy_bytes(buf, TOC_SIZE, pos);
+        let toc_buf = slice_bytes(buf, TOC_SIZE, pos);
         let cs = get_checksum(buf, pos + TOC_SIZE)?;
         let crc = CASTAGNIOLI.checksum(&toc_buf);
 
@@ -80,7 +80,7 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     curr += SYMBOLS_LEN_SIZE;
     println!("len: {}", len);
 
-    let table_buf = copy_bytes(&i.buf, len as usize, curr);
+    let table_buf = slice_bytes(&i.buf, len as usize, curr);
     curr += len as usize;
 
     let cs = get_checksum(&i.buf, curr)?;
@@ -134,7 +134,7 @@ impl Iterator for SymbolTable {
                 }
                 self.current_pos += size;
 
-                let data = copy_bytes(&self.buf, len as usize, self.current_pos);
+                let data = slice_bytes(&self.buf, len as usize, self.current_pos);
 
                 // data length
                 self.current_pos += len as usize;
@@ -214,6 +214,7 @@ impl Iterator for Series {
         }
     }
 }
+
 // ┌─────────────────────────────────────────┐
 // │ ref(symbols) <8b>                       │
 // ├─────────────────────────────────────────┤

@@ -12,6 +12,10 @@ pub fn copy_bytes(buf: &[u8], size: usize, pos: usize) -> Vec<u8> {
     ret
 }
 
+pub fn slice_bytes(buf: &[u8], size: usize, pos: usize) -> &[u8] {
+    &buf[pos..pos + size]
+}
+
 pub fn get_checksum(buf: &[u8], pos: usize) -> Result<u32> {
     read_u32(buf, pos)
 }
