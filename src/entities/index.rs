@@ -1,5 +1,5 @@
 use crc::{Crc, CRC_32_ISCSI};
-use std::{collections::HashMap, fs::File, io::Read, mem::size_of, path::Path, process, str};
+use std::{collections::HashMap, fs::File, io::Read, mem::size_of, path::Path, str};
 
 use crate::entities::common::*;
 
@@ -43,7 +43,7 @@ impl Index {
         let pos = buf.len() - TOC_SIZE - CHECKSUM_SIZE;
         let toc_buf = slice_bytes(buf, TOC_SIZE, pos);
         let cs = get_checksum(buf, pos + TOC_SIZE)?;
-        let crc = CASTAGNIOLI.checksum(&toc_buf);
+        let crc = CASTAGNIOLI.checksum(toc_buf);
 
         if cs != crc {
             println!("Checksum mismatch. Corrupted table of content.");
@@ -51,17 +51,17 @@ impl Index {
         }
 
         let mut current_pos = 0;
-        let symbols = read_u64(&toc_buf, current_pos)?;
+        let symbols = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let series = read_u64(&toc_buf, current_pos)?;
+        let series = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let label_index_start = read_u64(&toc_buf, current_pos)?;
+        let label_index_start = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let label_offset_table = read_u64(&toc_buf, current_pos)?;
+        let label_offset_table = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let postings_start = read_u64(&toc_buf, current_pos)?;
+        let postings_start = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let postings_offset_table = read_u64(&toc_buf, current_pos)?;
+        let postings_offset_table = read_u64(toc_buf, current_pos)?;
 
         Ok(TOC {
             symbols,
@@ -84,12 +84,9 @@ impl Index {
 
                 let data = slice_bytes(&self.buf, len as usize, p);
 
-                // data length
-                p += len as usize;
-
-                match str::from_utf8(&data) {
+                match str::from_utf8(data) {
                     Ok(s) => Ok(s.to_string()),
-                    Err(e) => Err(TSDBError),
+                    Err(_) => Err(TSDBError),
                 }
             }
             Err(_) => Err(TSDBError),
@@ -107,10 +104,10 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     curr += len as usize;
 
     let cs = get_checksum(&i.buf, curr)?;
-    let crc = CASTAGNIOLI.checksum(&table_buf);
+    let crc = CASTAGNIOLI.checksum(table_buf);
 
     let data = copy_bytes(
-        &table_buf,
+        table_buf,
         table_buf.len() - NUM_SYMBOLS_SIZE,
         NUM_SYMBOLS_SIZE,
     );
@@ -176,7 +173,7 @@ impl Iterator for SymbolTable {
                 // data length
                 self.current_pos += len as usize;
 
-                match str::from_utf8(&data) {
+                match str::from_utf8(data) {
                     Ok(s) => Some(s.to_string()),
                     Err(e) => {
                         println!("{}", e);
@@ -241,15 +238,15 @@ impl TryFrom<&[u8]> for SeriesItem {
 
     fn try_from(buf: &[u8]) -> std::result::Result<Self, Self::Error> {
         let mut pos = 0;
-        let (num_labels, size) = read_varint_u64(&buf, pos)?;
+        let (num_labels, size) = read_varint_u64(buf, pos)?;
         pos += size;
         println!("num labels: {}", num_labels);
 
         let mut labels = HashMap::<usize, usize>::new();
-        for i in 0..num_labels {
-            let (k, size) = read_varint_u32(&buf, pos)?;
+        for _ in 0..num_labels {
+            let (k, size) = read_varint_u32(buf, pos)?;
             pos += size;
-            let (v, size) = read_varint_u32(&buf, pos)?;
+            let (v, size) = read_varint_u32(buf, pos)?;
             pos += size;
 
             // TODO: properly resolve from symbol table
@@ -294,7 +291,7 @@ impl Iterator for Series {
                 self.current_pos += len as usize;
                 match get_checksum(&self.buf, self.current_pos) {
                     Ok(cs) => {
-                        let crc = CASTAGNIOLI.checksum(&data);
+                        let crc = CASTAGNIOLI.checksum(data);
                         if cs != crc {
                             println!("checksum mismatch");
                             return None;
@@ -303,9 +300,9 @@ impl Iterator for Series {
                         let item: SeriesItem = data.try_into().unwrap();
                         self.current_pos += CHECKSUM_SIZE;
 
-                        return Some(item);
+                        Some(item)
                     }
-                    Err(_) => return None,
+                    Err(_) => None,
                 }
             }
             Err(_) => None,
