@@ -47,7 +47,7 @@ impl Index {
 
         if cs != crc {
             println!("Checksum mismatch. Corrupted table of content.");
-            return Err(TSDBError);
+            return Err(TSDBError::Default);
         }
 
         let mut current_pos = 0;
@@ -78,7 +78,7 @@ impl Index {
         match read_varint_u32(&self.buf, p) {
             Ok((len, size)) => {
                 if size == 0 {
-                    return Err(TSDBError);
+                    return Err(TSDBError::Default);
                 }
                 p += size;
 
@@ -86,10 +86,10 @@ impl Index {
 
                 match str::from_utf8(data) {
                     Ok(s) => Ok(s.to_string()),
-                    Err(_) => Err(TSDBError),
+                    Err(_) => Err(TSDBError::Default),
                 }
             }
-            Err(_) => Err(TSDBError),
+            Err(_) => Err(TSDBError::CantReadSymbol),
         }
     }
 }
@@ -115,7 +115,7 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     //println!("{:x?}", table_buf);
     if cs != crc {
         println!("Checksum mismatch. Corrupted symbol table.");
-        return Err(TSDBError);
+        return Err(TSDBError::Default);
     }
 
     Ok(SymbolTable {
@@ -283,6 +283,7 @@ impl Iterator for Series {
                 }
                 self.current_pos += size;
                 // if len is 0 keep going
+                // TODO: find proper aligned pos instead of skipping single bytes
                 if len == 0 {
                     return self.next();
                 }
@@ -297,10 +298,11 @@ impl Iterator for Series {
                             return None;
                         }
 
-                        let item: SeriesItem = data.try_into().unwrap();
+                        // TODO: don't unwrap
+                        let series_item = data.try_into().unwrap();
                         self.current_pos += CHECKSUM_SIZE;
 
-                        Some(item)
+                        Some(series_item)
                     }
                     Err(_) => None,
                 }

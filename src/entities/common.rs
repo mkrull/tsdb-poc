@@ -2,7 +2,10 @@ use std::mem::size_of;
 use unsigned_varint::decode;
 
 #[derive(Debug, Clone)]
-pub struct TSDBError;
+pub enum TSDBError {
+    Default,
+    CantReadSymbol,
+}
 
 pub type Result<T> = std::result::Result<T, TSDBError>;
 
@@ -30,7 +33,7 @@ macro_rules! read_varint {
             match decode::$ti(&uvarint_vec) {
                 Ok((int, rest)) => Ok((int, size_of::<$typ>() - rest.len())),
                 Err(_) => {
-                    return Err(TSDBError);
+                    return Err(TSDBError::Default);
                 }
             }
         }
@@ -46,7 +49,7 @@ macro_rules! read {
             let b = copy_bytes(buf, size_of::<$typ>(), pos);
             match TryInto::<[u8; size_of::<$typ>()]>::try_into(b) {
                 Ok(bytes) => Ok(<$typ>::from_be_bytes(bytes)),
-                Err(_) => Err(TSDBError),
+                Err(_) => Err(TSDBError::Default),
             }
         }
     };
