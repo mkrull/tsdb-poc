@@ -4,7 +4,7 @@ use unsigned_varint::decode;
 #[derive(Debug, Clone)]
 pub enum TSDBError {
     Default,
-    CantReadSymbol,
+    SymbolTableLookup,
 }
 
 pub type Result<T> = std::result::Result<T, TSDBError>;
@@ -29,7 +29,7 @@ macro_rules! read_varint {
             if buf.len() <= pos {
                 return Ok((0, 0));
             }
-            let uvarint_vec = copy_bytes(buf, size_of::<$typ>(), pos);
+            let uvarint_vec = slice_bytes(buf, size_of::<$typ>(), pos);
             match decode::$ti(&uvarint_vec) {
                 Ok((int, rest)) => Ok((int, size_of::<$typ>() - rest.len())),
                 Err(_) => {
@@ -46,7 +46,7 @@ read_varint!(read_varint_u64, u64, u64);
 macro_rules! read {
     ($func:ident, $typ:ty) => {
         pub fn $func(buf: &[u8], pos: usize) -> Result<$typ> {
-            let b = copy_bytes(buf, size_of::<$typ>(), pos);
+            let b = slice_bytes(buf, size_of::<$typ>(), pos);
             match TryInto::<[u8; size_of::<$typ>()]>::try_into(b) {
                 Ok(bytes) => Ok(<$typ>::from_be_bytes(bytes)),
                 Err(_) => Err(TSDBError::Default),
