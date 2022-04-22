@@ -88,7 +88,7 @@ mod test {
     use super::*;
 
     fn load_chunks() -> Chunks {
-        let test_chunks = Path::new("testdata/index_format_v1/chunks/000001");
+        let test_chunks = Path::new("testdata/testblock/chunks/000001");
         Chunks::new(test_chunks)
     }
 
@@ -96,7 +96,7 @@ mod test {
     fn load_test_chunks() {
         let chunks = load_chunks();
 
-        let expected = 102;
+        let expected = 37020;
         assert_eq!(expected, chunks.collect::<Vec<usize>>().len());
     }
 }

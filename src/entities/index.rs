@@ -1,5 +1,5 @@
 use crc::{Crc, CRC_32_ISCSI};
-use std::{fs::File, io::Read, mem::size_of, path::Path, process, str};
+use std::{collections::HashMap, fs::File, io::Read, mem::size_of, path::Path, str};
 
 use crate::entities::common::*;
 
@@ -31,6 +31,7 @@ impl Index {
         let v = copy_bytes(&buf, VERSION_SIZE, 4);
 
         println!("magic: {:x?}", m);
+        // TODO: explicitly do not support version 1
         println!("version: {:x?}", v);
 
         let toc = Index::toc(&buf).expect("Could not load TOC.");
@@ -41,27 +42,27 @@ impl Index {
     fn toc(buf: &[u8]) -> Result<TOC> {
         // get table of content
         let pos = buf.len() - TOC_SIZE - CHECKSUM_SIZE;
-        let toc_buf = copy_bytes(buf, TOC_SIZE, pos);
+        let toc_buf = slice_bytes(buf, TOC_SIZE, pos);
         let cs = get_checksum(buf, pos + TOC_SIZE)?;
-        let crc = CASTAGNIOLI.checksum(&toc_buf);
+        let crc = CASTAGNIOLI.checksum(toc_buf);
 
         if cs != crc {
             println!("Checksum mismatch. Corrupted table of content.");
-            process::exit(1);
+            return Err(TSDBError::Default);
         }
 
         let mut current_pos = 0;
-        let symbols = read_u64(&toc_buf, current_pos)?;
+        let symbols = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let series = read_u64(&toc_buf, current_pos)?;
+        let series = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let label_index_start = read_u64(&toc_buf, current_pos)?;
+        let label_index_start = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let label_offset_table = read_u64(&toc_buf, current_pos)?;
+        let label_offset_table = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let postings_start = read_u64(&toc_buf, current_pos)?;
+        let postings_start = read_u64(toc_buf, current_pos)?;
         current_pos += TOC_ENTRY_SIZE;
-        let postings_offset_table = read_u64(&toc_buf, current_pos)?;
+        let postings_offset_table = read_u64(toc_buf, current_pos)?;
 
         Ok(TOC {
             symbols,
@@ -78,27 +79,40 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     let mut curr = i.toc.symbols as usize;
     let len = read_u32(&i.buf, curr)?;
     curr += SYMBOLS_LEN_SIZE;
-    println!("len: {}", len);
 
-    let table_buf = copy_bytes(&i.buf, len as usize, curr);
+    let table_buf = slice_bytes(&i.buf, len as usize, curr);
     curr += len as usize;
 
     let cs = get_checksum(&i.buf, curr)?;
-    let crc = CASTAGNIOLI.checksum(&table_buf);
+    let crc = CASTAGNIOLI.checksum(table_buf);
 
     let data = copy_bytes(
-        &table_buf,
+        table_buf,
         table_buf.len() - NUM_SYMBOLS_SIZE,
         NUM_SYMBOLS_SIZE,
     );
 
-    //println!("{:x?}", table_buf);
     if cs != crc {
         println!("Checksum mismatch. Corrupted symbol table.");
-        return Err(TSDBError);
+        return Err(TSDBError::Default);
     }
 
     Ok(SymbolTable {
+        buf: data,
+        current_pos: 0,
+        positions: Vec::<usize>::new(),
+    })
+}
+
+pub fn series(i: &Index) -> Result<Series> {
+    let start = i.toc.series as usize;
+    let end = i.toc.label_index_start as usize;
+
+    // TODO: slice here, will require tying series to the lifetime of the index
+    // explicitly
+    let data = copy_bytes(&i.buf, end - start, start);
+
+    Ok(Series {
         buf: data,
         current_pos: 0,
     })
@@ -121,10 +135,11 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
 pub struct SymbolTable {
     buf: Vec<u8>,
     current_pos: usize,
+    positions: Vec<usize>,
 }
 
 impl Iterator for SymbolTable {
-    type Item = String;
+    type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
         match read_varint_u32(&self.buf, self.current_pos) {
@@ -132,22 +147,63 @@ impl Iterator for SymbolTable {
                 if size == 0 {
                     return None;
                 }
+                // advance by size of data length value
                 self.current_pos += size;
-
-                let data = copy_bytes(&self.buf, len as usize, self.current_pos);
-
-                // data length
+                // advance by data length
                 self.current_pos += len as usize;
 
-                match str::from_utf8(&data) {
-                    Ok(s) => Some(s.to_string()),
-                    Err(e) => {
-                        println!("{}", e);
-                        None
-                    }
-                }
+                self.positions.push(self.current_pos);
+                Some(self.current_pos)
             }
             Err(_) => None,
+        }
+    }
+}
+
+impl SymbolTable {
+    pub fn lookup(&mut self, n: usize) -> Result<String> {
+        // lookup takes the position of the symbol as input, we have to check if
+        // the position exists already and if it does not have to advance to
+        // that postion if possible.
+        if n > self.positions.len() {
+            // TODO: switch to advance_by once iter_advance_by is stable for now
+            // just use up the iterator
+            //
+            // let needed = n as usize - self.positions.len();
+            // match self.advance_by(needed) {
+            //    Err(_) => return Err(TSDBError::SymbolTableLookup),
+            //    _ => {}
+            // }
+            self.count();
+
+            // Fail in case the iterator can not be advanced to the required
+            // position
+            if n > self.positions.len() {
+                return Err(TSDBError::SymbolTableLookup);
+            }
+        }
+        // read n-1th position. n is the number of the symbol starting at index
+        // 1.
+        self.read_symbol(self.positions[n - 1] as usize)
+    }
+
+    pub fn read_symbol(&self, pos: usize) -> Result<String> {
+        let mut p = pos;
+        match read_varint_u32(&self.buf, p) {
+            Ok((len, size)) => {
+                if size == 0 {
+                    return Err(TSDBError::Default);
+                }
+                p += size;
+
+                let data = slice_bytes(&self.buf, len as usize, p);
+
+                match str::from_utf8(data) {
+                    Ok(s) => Ok(s.to_string()),
+                    Err(_) => Err(TSDBError::Default),
+                }
+            }
+            Err(_) => Err(TSDBError::SymbolTableLookup),
         }
     }
 }
@@ -192,28 +248,84 @@ pub struct Series {
     current_pos: usize,
 }
 
+#[derive(Debug)]
+pub struct SeriesItem {
+    pub labels: HashMap<usize, usize>,
+}
+
+impl TryFrom<&[u8]> for SeriesItem {
+    type Error = TSDBError;
+
+    fn try_from(buf: &[u8]) -> std::result::Result<Self, Self::Error> {
+        let mut pos = 0;
+        let (num_labels, size) = read_varint_u64(buf, pos)?;
+        pos += size;
+
+        let mut labels = HashMap::<usize, usize>::new();
+        for _ in 0..num_labels {
+            let (k, size) = read_varint_u32(buf, pos)?;
+            pos += size;
+            let (v, size) = read_varint_u32(buf, pos)?;
+            pos += size;
+
+            labels.insert(k as usize, v as usize);
+        }
+
+        Ok(SeriesItem { labels })
+    }
+}
+
+#[derive(Debug)]
+pub struct SeriesChunk {
+    min_time: u64,
+    max_time: u64,
+    // TODO: data: Vec<u8>,
+    data: (u64, u64),
+}
+
 impl Iterator for Series {
-    type Item = Vec<u8>;
+    type Item = SeriesItem;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // be done if we reached the end of the buffer
+        if self.current_pos >= self.buf.len() {
+            return None;
+        }
         match read_varint_u32(&self.buf, self.current_pos) {
             Ok((len, size)) => {
                 if size == 0 {
                     return None;
                 }
                 self.current_pos += size;
-
-                let data = copy_bytes(&self.buf, len as usize, self.current_pos);
-
-                // data length
+                // if len is 0 keep going
+                // TODO: find proper aligned pos instead of skipping single bytes
+                if len == 0 {
+                    return self.next();
+                }
+                let data = slice_bytes(&self.buf, len as usize, self.current_pos);
                 self.current_pos += len as usize;
+                match get_checksum(&self.buf, self.current_pos) {
+                    Ok(cs) => {
+                        let crc = CASTAGNIOLI.checksum(data);
+                        if cs != crc {
+                            println!("checksum mismatch");
+                            return None;
+                        }
 
-                Some(data)
+                        // TODO: don't unwrap
+                        let series_item = data.try_into().unwrap();
+                        self.current_pos += CHECKSUM_SIZE;
+
+                        Some(series_item)
+                    }
+                    Err(_) => None,
+                }
             }
             Err(_) => None,
         }
     }
 }
+
 // ┌─────────────────────────────────────────┐
 // │ ref(symbols) <8b>                       │
 // ├─────────────────────────────────────────┤
@@ -244,7 +356,7 @@ mod test {
     use super::*;
 
     fn load_index() -> Index {
-        let test_index = Path::new("testdata/index_format_v1/index");
+        let test_index = Path::new("testdata/testblock/index");
         Index::new(test_index)
     }
 
@@ -254,29 +366,24 @@ mod test {
 
         let expected = TOC {
             symbols: 5,
-            series: 323,
-            label_index_start: 1806,
-            postings_start: 2248,
-            label_offset_table: 4300,
-            postings_offset_table: 4326,
+            series: 122043,
+            label_index_start: 2604441,
+            postings_start: 2622872,
+            label_offset_table: 4279608,
+            postings_offset_table: 4282677,
         };
-
         assert_eq!(expected, index.toc);
     }
 
     #[test]
-    fn load_symbol_table() {
+    fn load_series() {
         let index = load_index();
 
-        // build expected vec ["0", "1", "10", ..., "foo", "meh"]
-        let mut expected: Vec<String> = (0..100).map(|i| i.to_string()).collect();
-        expected.sort();
-        expected.push("bar".to_string());
-        expected.push("baz".to_string());
-        expected.push("foo".to_string());
-        expected.push("meh".to_string());
+        // expected count of series
+        let expected_count = 35354;
 
-        let sym_table = symbol_table(&index).unwrap();
-        assert_eq!(expected, sym_table.collect::<Vec<String>>())
+        let series = series(&index).unwrap();
+        let count = series.count();
+        assert_eq!(expected_count, count);
     }
 }
