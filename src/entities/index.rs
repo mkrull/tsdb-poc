@@ -31,6 +31,7 @@ impl Index {
         let v = copy_bytes(&buf, VERSION_SIZE, 4);
 
         println!("magic: {:x?}", m);
+        // TODO: explicitly do not support version 1
         println!("version: {:x?}", v);
 
         let toc = Index::toc(&buf).expect("Could not load TOC.");

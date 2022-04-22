@@ -1,6 +1,10 @@
 [package]
 name = "tsdb"
+description = "Parse Prometheus tsdb files"
 version = "0.2.0"
+authors = ["Matthias Krull"]
+repository = "https://github.com/mkrull/tsdb-poc"
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
