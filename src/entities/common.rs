@@ -9,11 +9,11 @@ pub enum TSDBError {
 
 pub type Result<T> = std::result::Result<T, TSDBError>;
 
-pub fn copy_bytes(buf: &[u8], size: usize, pos: usize) -> Vec<u8> {
-    let mut ret = vec![0; size];
-    ret[..].copy_from_slice(&buf[pos..pos + size]);
-    ret
-}
+// pub fn copy_bytes(buf: &[u8], size: usize, pos: usize) -> Vec<u8> {
+//     let mut ret = vec![0; size];
+//     ret[..].copy_from_slice(&buf[pos..pos + size]);
+//     ret
+// }
 
 pub fn slice_bytes(buf: &[u8], size: usize, pos: usize) -> &[u8] {
     &buf[pos..pos + size]

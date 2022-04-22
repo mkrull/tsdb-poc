@@ -26,10 +26,10 @@ impl Chunks {
 
         f.read_to_end(&mut buf).expect("Error reading into buf");
 
-        let m = copy_bytes(&buf, MAGIC_SIZE, 0);
+        let m = slice_bytes(&buf, MAGIC_SIZE, 0);
         println!("magic: {:x?}", m);
 
-        let v = copy_bytes(&buf, VERSION_SIZE, 4);
+        let v = slice_bytes(&buf, VERSION_SIZE, 4);
         println!("version: {:x?}", v);
 
         Self {
@@ -63,7 +63,7 @@ impl Iterator for Chunks {
 
                 // verify checksum
                 // the checksum is created over the encoding and data
-                let data = copy_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
+                let data = slice_bytes(&self.buf, ENCODING_SIZE + len as usize, start + size);
 
                 match get_checksum(&self.buf, self.current_pos - CHECKSUM_SIZE) {
                     Ok(cs) => {
