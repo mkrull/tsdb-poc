@@ -1,5 +1,6 @@
 use crc::{Crc, CRC_32_ISCSI};
-use std::{collections::HashMap, fs::File, io::Read, mem::size_of, path::Path, str};
+use memmap::Mmap;
+use std::{collections::HashMap, fs::File, mem::size_of, path::Path, str};
 
 use crate::entities::common::*;
 
@@ -16,27 +17,27 @@ const TOC_SIZE: usize = size_of::<TOC>();
 // https://github.com/prometheus/prometheus/blob/main/tsdb/docs/format/index.md
 #[derive(Debug)]
 pub struct Index {
-    buf: Vec<u8>,
+    buf: Mmap,
     toc: TOC,
 }
 
 impl Index {
     pub fn new(path: &Path) -> Self {
-        let mut f = File::open(path).expect("Could not open file.");
-        let mut buf: Vec<u8> = Vec::new();
+        let f = File::open(path).expect("Could not open file.");
+        unsafe {
+            let buf = Mmap::map(&f).expect("Could not map file.");
 
-        f.read_to_end(&mut buf).expect("Error reading into buf");
+            let m = slice_bytes(&buf, MAGIC_SIZE, 0);
+            let v = slice_bytes(&buf, VERSION_SIZE, 4);
 
-        let m = copy_bytes(&buf, MAGIC_SIZE, 0);
-        let v = copy_bytes(&buf, VERSION_SIZE, 4);
+            println!("magic: {:x?}", m);
+            // TODO: explicitly do not support version 1
+            println!("version: {:x?}", v);
 
-        println!("magic: {:x?}", m);
-        // TODO: explicitly do not support version 1
-        println!("version: {:x?}", v);
+            let toc = Index::toc(&buf).expect("Could not load TOC.");
 
-        let toc = Index::toc(&buf).expect("Could not load TOC.");
-
-        Self { toc, buf }
+            Self { toc, buf }
+        }
     }
 
     fn toc(buf: &[u8]) -> Result<TOC> {
@@ -86,7 +87,7 @@ pub fn symbol_table(i: &Index) -> Result<SymbolTable> {
     let cs = get_checksum(&i.buf, curr)?;
     let crc = CASTAGNIOLI.checksum(table_buf);
 
-    let data = copy_bytes(
+    let data = slice_bytes(
         table_buf,
         table_buf.len() - NUM_SYMBOLS_SIZE,
         NUM_SYMBOLS_SIZE,
@@ -110,10 +111,10 @@ pub fn series(i: &Index) -> Result<Series> {
 
     // TODO: slice here, will require tying series to the lifetime of the index
     // explicitly
-    let data = copy_bytes(&i.buf, end - start, start);
+    let data = slice_bytes(&i.buf, end - start, start);
 
     Ok(Series {
-        buf: data,
+        buf: &data,
         current_pos: 0,
     })
 }
@@ -132,13 +133,13 @@ pub fn series(i: &Index) -> Result<Series> {
 // │ CRC32 <4b>                               │
 // └──────────────────────────────────────────┘
 #[derive(Debug)]
-pub struct SymbolTable {
-    buf: Vec<u8>,
+pub struct SymbolTable<'a> {
+    buf: &'a [u8],
     current_pos: usize,
     positions: Vec<usize>,
 }
 
-impl Iterator for SymbolTable {
+impl<'a> Iterator for SymbolTable<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -160,7 +161,7 @@ impl Iterator for SymbolTable {
     }
 }
 
-impl SymbolTable {
+impl<'a> SymbolTable<'_> {
     pub fn lookup(&mut self, n: usize) -> Result<String> {
         // lookup takes the position of the symbol as input, we have to check if
         // the position exists already and if it does not have to advance to
@@ -243,8 +244,8 @@ impl SymbolTable {
 // │ CRC32 <4b>                                                               │
 // └──────────────────────────────────────────────────────────────────────────┘
 #[derive(Debug)]
-pub struct Series {
-    buf: Vec<u8>,
+pub struct Series<'a> {
+    buf: &'a [u8],
     current_pos: usize,
 }
 
@@ -275,15 +276,7 @@ impl TryFrom<&[u8]> for SeriesItem {
     }
 }
 
-#[derive(Debug)]
-pub struct SeriesChunk {
-    min_time: u64,
-    max_time: u64,
-    // TODO: data: Vec<u8>,
-    data: (u64, u64),
-}
-
-impl Iterator for Series {
+impl<'a> Iterator for Series<'_> {
     type Item = SeriesItem;
 
     fn next(&mut self) -> Option<Self::Item> {
