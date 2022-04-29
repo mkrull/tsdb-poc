@@ -1,9 +1,9 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-pub mod entities;
-use entities::chunks;
-use entities::index;
+extern crate tsdb;
+use tsdb::chunks;
+use tsdb::index;
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]

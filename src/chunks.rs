@@ -2,7 +2,7 @@ use crc::{Crc, CRC_32_ISCSI};
 use std::{fs::File, io::Read, path::Path};
 
 #[path = "common.rs"]
-mod common;
+pub mod common;
 use common::*;
 
 const CASTAGNIOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);

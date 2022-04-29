@@ -2,7 +2,7 @@ use crc::{Crc, CRC_32_ISCSI};
 use memmap::Mmap;
 use std::{collections::HashMap, fs::File, mem::size_of, path::Path, str};
 
-use crate::entities::common::*;
+use crate::common::*;
 
 const CASTAGNIOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 const CHECKSUM_SIZE: usize = 4;
