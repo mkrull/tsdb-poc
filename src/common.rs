@@ -7,6 +7,8 @@ pub enum TSDBError {
     SymbolTableLookup,
 }
 
+const EIGHT_BYTES: [u8; 7] = [0; 7];
+
 pub type Result<T> = std::result::Result<T, TSDBError>;
 
 // pub fn copy_bytes(buf: &[u8], size: usize, pos: usize) -> Vec<u8> {
@@ -29,7 +31,8 @@ macro_rules! read_varint {
             if buf.len() <= pos {
                 return Ok((0, 0));
             }
-            let uvarint_vec = slice_bytes(buf, size_of::<$typ>(), pos);
+            let bbuf: &[u8] = &[buf, &EIGHT_BYTES].concat();
+            let uvarint_vec = slice_bytes(bbuf, size_of::<$typ>(), pos);
             match decode::$ti(&uvarint_vec) {
                 Ok((int, rest)) => Ok((int, size_of::<$typ>() - rest.len())),
                 Err(_) => {
@@ -57,3 +60,15 @@ macro_rules! read {
 
 read!(read_u32, u32);
 read!(read_u64, u64);
+
+pub fn read_varint_i64(buf: &[u8], pos: usize) -> Result<(i64, usize)> {
+    // those varint64s are stored as encoded uvarint64s
+    let (u, size) = read_varint_u64(buf, pos)?;
+    Ok((zigzag_dec(u), size))
+}
+
+// get i64 from zigzag encoded u64
+// see: https://developers.google.com/protocol-buffers/docs/encoding#signed-ints
+fn zigzag_dec(u: u64) -> i64 {
+    (u >> 1) as i64 ^ -((u & 1) as i64)
+}

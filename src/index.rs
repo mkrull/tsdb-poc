@@ -252,6 +252,7 @@ pub struct Series<'a> {
 #[derive(Debug)]
 pub struct SeriesItem {
     pub labels: HashMap<usize, usize>,
+    pub chunks: Vec<(i64, u64, u64)>,
 }
 
 impl TryFrom<&[u8]> for SeriesItem {
@@ -272,7 +273,22 @@ impl TryFrom<&[u8]> for SeriesItem {
             labels.insert(k as usize, v as usize);
         }
 
-        Ok(SeriesItem { labels })
+        let (num_chunks, size) = read_varint_u64(buf, pos)?;
+        println!("chunks {}", num_chunks);
+        pos += size;
+        let mut chunks = Vec::<(i64, u64, u64)>::new();
+        for _ in 0..num_chunks {
+            let (mint, size) = read_varint_i64(buf, pos)?;
+            pos += size;
+            let (maxt, size) = read_varint_u64(buf, pos)?;
+            pos += size;
+            let (data, size) = read_varint_u64(buf, pos)?;
+            pos += size;
+
+            chunks.push((mint, maxt, data));
+        }
+
+        Ok(SeriesItem { labels, chunks })
     }
 }
 
