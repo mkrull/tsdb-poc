@@ -7,8 +7,6 @@ pub enum TSDBError {
     SymbolTableLookup,
 }
 
-const EIGHT_BYTES: [u8; 7] = [0; 7];
-
 pub type Result<T> = std::result::Result<T, TSDBError>;
 
 // pub fn copy_bytes(buf: &[u8], size: usize, pos: usize) -> Vec<u8> {
@@ -31,10 +29,10 @@ macro_rules! read_varint {
             if buf.len() <= pos {
                 return Ok((0, 0));
             }
-            let bbuf: &[u8] = &[buf, &EIGHT_BYTES].concat();
-            let uvarint_vec = slice_bytes(bbuf, size_of::<$typ>(), pos);
-            match decode::$ti(&uvarint_vec) {
-                Ok((int, rest)) => Ok((int, size_of::<$typ>() - rest.len())),
+
+            let varint_vec = &buf[pos..];
+            match decode::$ti(varint_vec) {
+                Ok((int, rest)) => return Ok((int, varint_vec.len() - rest.len())),
                 Err(_) => {
                     return Err(TSDBError::Default);
                 }

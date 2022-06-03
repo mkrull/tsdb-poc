@@ -250,9 +250,15 @@ pub struct Series<'a> {
 }
 
 #[derive(Debug)]
+pub enum IntType {
+    U64(u64),
+    I64(i64),
+}
+
+#[derive(Debug)]
 pub struct SeriesItem {
     pub labels: HashMap<usize, usize>,
-    pub chunks: Vec<(i64, u64, u64)>,
+    pub chunks: Vec<(IntType, u64, u64)>,
 }
 
 impl TryFrom<&[u8]> for SeriesItem {
@@ -274,11 +280,19 @@ impl TryFrom<&[u8]> for SeriesItem {
         }
 
         let (num_chunks, size) = read_varint_u64(buf, pos)?;
-        println!("chunks {}", num_chunks);
         pos += size;
-        let mut chunks = Vec::<(i64, u64, u64)>::new();
+        let mut chunks = Vec::<(IntType, u64, u64)>::new();
         for _ in 0..num_chunks {
-            let (mint, size) = read_varint_i64(buf, pos)?;
+            // the first chunk encodes the start time in Unix time format and
+            // can be negative, all subsequent have a mint as positive offset of
+            // the first one.
+            let (mint, size) = if chunks.len() > 0 {
+                let (mint, size) = read_varint_u64(buf, pos)?;
+                (IntType::U64(mint), size)
+            } else {
+                let (mint, size) = read_varint_i64(buf, pos)?;
+                (IntType::I64(mint), size)
+            };
             pos += size;
             let (maxt, size) = read_varint_u64(buf, pos)?;
             pos += size;
