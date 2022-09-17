@@ -1,9 +1,7 @@
 use crc::{Crc, CRC_32_ISCSI};
 use std::{fs::File, io::Read, path::Path};
 
-#[path = "common.rs"]
-pub mod common;
-use common::*;
+use crate::common::*;
 
 const CASTAGNIOLI: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
 const ENCODING_SIZE: usize = 1;
@@ -67,7 +65,7 @@ impl Iterator for Chunks {
 
                 match get_checksum(&self.buf, self.current_pos - CHECKSUM_SIZE) {
                     Ok(cs) => {
-                        let crc = CASTAGNIOLI.checksum(&data);
+                        let crc = CASTAGNIOLI.checksum(data);
 
                         if cs != crc {
                             return None;
@@ -97,6 +95,6 @@ mod test {
         let chunks = load_chunks();
 
         let expected = 37020;
-        assert_eq!(expected, chunks.collect::<Vec<usize>>().len());
+        assert_eq!(expected, chunks.count());
     }
 }
