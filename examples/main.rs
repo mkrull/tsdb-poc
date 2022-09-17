@@ -35,7 +35,7 @@ fn main() {
 
         let series = index::series(&index).unwrap();
         for s in series {
-            println!("{:?}", s);
+            println!("Chunks: {}", s.chunks.len());
             for (k, v) in s.labels.into_iter() {
                 let key = sym.lookup(k).unwrap();
                 let val = sym.lookup(v).unwrap();

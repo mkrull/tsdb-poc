@@ -114,7 +114,7 @@ pub fn series(i: &Index) -> Result<Series> {
     let data = slice_bytes(&i.buf, end - start, start);
 
     Ok(Series {
-        buf: &data,
+        buf: data,
         current_pos: 0,
     })
 }
@@ -139,11 +139,11 @@ pub struct SymbolTable<'a> {
     positions: Vec<usize>,
 }
 
-impl<'a> Iterator for SymbolTable<'_> {
+impl Iterator for SymbolTable<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match read_varint_u32(&self.buf, self.current_pos) {
+        match read_varint_u32(self.buf, self.current_pos) {
             Ok((len, size)) => {
                 if size == 0 {
                     return None;
@@ -161,7 +161,7 @@ impl<'a> Iterator for SymbolTable<'_> {
     }
 }
 
-impl<'a> SymbolTable<'_> {
+impl SymbolTable<'_> {
     pub fn lookup(&mut self, n: usize) -> Result<String> {
         // lookup takes the position of the symbol as input, we have to check if
         // the position exists already and if it does not have to advance to
@@ -190,14 +190,14 @@ impl<'a> SymbolTable<'_> {
 
     pub fn read_symbol(&self, pos: usize) -> Result<String> {
         let mut p = pos;
-        match read_varint_u32(&self.buf, p) {
+        match read_varint_u32(self.buf, p) {
             Ok((len, size)) => {
                 if size == 0 {
                     return Err(TSDBError::Default);
                 }
                 p += size;
 
-                let data = slice_bytes(&self.buf, len as usize, p);
+                let data = slice_bytes(self.buf, len as usize, p);
 
                 match str::from_utf8(data) {
                     Ok(s) => Ok(s.to_string()),
@@ -286,7 +286,7 @@ impl TryFrom<&[u8]> for SeriesItem {
             // the first chunk encodes the start time in Unix time format and
             // can be negative, all subsequent have a mint as positive offset of
             // the first one.
-            let (mint, size) = if chunks.len() > 0 {
+            let (mint, size) = if !chunks.is_empty() {
                 let (mint, size) = read_varint_u64(buf, pos)?;
                 (IntType::U64(mint), size)
             } else {
@@ -306,7 +306,7 @@ impl TryFrom<&[u8]> for SeriesItem {
     }
 }
 
-impl<'a> Iterator for Series<'_> {
+impl Iterator for Series<'_> {
     type Item = SeriesItem;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -314,7 +314,7 @@ impl<'a> Iterator for Series<'_> {
         if self.current_pos >= self.buf.len() {
             return None;
         }
-        match read_varint_u32(&self.buf, self.current_pos) {
+        match read_varint_u32(self.buf, self.current_pos) {
             Ok((len, size)) => {
                 if size == 0 {
                     return None;
@@ -325,9 +325,9 @@ impl<'a> Iterator for Series<'_> {
                 if len == 0 {
                     return self.next();
                 }
-                let data = slice_bytes(&self.buf, len as usize, self.current_pos);
+                let data = slice_bytes(self.buf, len as usize, self.current_pos);
                 self.current_pos += len as usize;
-                match get_checksum(&self.buf, self.current_pos) {
+                match get_checksum(self.buf, self.current_pos) {
                     Ok(cs) => {
                         let crc = CASTAGNIOLI.checksum(data);
                         if cs != crc {
@@ -364,7 +364,7 @@ impl<'a> Iterator for Series<'_> {
 // ├─────────────────────────────────────────┤
 // │ CRC32 <4b>                              │
 // └─────────────────────────────────────────┘
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TOC {
     symbols: u64,
     series: u64,
